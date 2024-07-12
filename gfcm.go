@@ -3,8 +3,11 @@ package goffmpegconvertermicroservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"log"
 	"math"
@@ -13,17 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
-
 	pb "github.com/g13n4/go-ffmpeg-converter-microservice/video-converter"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
 var FILE_HANDLER_MAP = map[int64]*os.File{}
-
-type ThisVideoConverterServer struct {
-}
 
 func WriteBytesToFile(fileName string, videoId int64, data []byte) error {
 	// Check if file exists. If it does we append bytes and if not we create a new one
@@ -62,7 +59,13 @@ func WriteBytesToFile(fileName string, videoId int64, data []byte) error {
 	return nil
 }
 
-func (c *ThisVideoConverterServer) ConvertVideo(stream pb.VideoConverter_ConvertVideoServer) error {
+type videoConverterServer struct {
+	pb.UnimplementedVideoConverterServer
+	videoToConvertChunks []*pb.VideoToConvert
+	convertedVideoChunks []*pb.ConvertedVideo
+}
+
+func (vcs *videoConverterServer) ConvertVideo(stream pb.VideoConverter_ConvertVideoServer) error {
 	for {
 		in, err := stream.Recv()
 
@@ -72,16 +75,42 @@ func (c *ThisVideoConverterServer) ConvertVideo(stream pb.VideoConverter_Convert
 		if err != nil {
 			return err
 		}
+		// if it's not the first chuck and the handler is not present in the map then there was an error
+		// and we can safely skip next chunks
 
 		vi := in.VideoInfo
+		handler, ok := FILE_HANDLER_MAP[vi.VideoId]
+		if vi.chunkIndex != 1 && !ok {
+			// TODO: replace the error with a response
+			sendError := stream.Send(vcs.ConvertedVideo{
+				success: false,
+				error:   "There is something wrong with the file",
+			})
+			if sendError != nil {
+				return sendError
+			}
+		}
+
 		fileNameInput := fmt.Sprintf("/tmp/%d/input/%s.%s", vi.VideoId, vi.FileEncoding)
 		fileNameOutput := fmt.Sprintf("/tmp/%d/output/%s.%s", vi.VideoId, vi.OutputEncoding)
 
 		writingErr := WriteBytesToFile(fileNameInput, vi.VideoId, in.VideoFeed)
 
 		if writingErr != nil {
-			removeFileError := os.Remove(fileName)
-			delete(FILE_HANDLER_MAP, videoId)
+			handler, ok := FILE_HANDLER_MAP[videoId] // check if file exists. If it does we remove it
+			if ok {
+				delete(FILE_HANDLER_MAP, videoId)
+			}
+
+			_, fileStatsErr := os.Stat(fileNameInput)
+			if errors.Is(fileStatsErr, os.ErrNotExist) {
+
+				removeFileError := os.Remove(fileName)
+			}
+
+			if removeFileError != nil {
+				return removeFileError
+			}
 
 			if removeFileError != nil {
 				return removeFileError

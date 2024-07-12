@@ -11,19 +11,19 @@ message VideoInfo {
   string file_encoding = 2;
   string output_encoding = 3;
   int64 video_id = 4;
-  bool last_chunk = 5;
 }
 
 
 message VideoToConvert {
   VideoInfo video_info = 1;
-  int chunk_order = 2;
-  bytes video_feed = 3;
+  int32 chunk_index = 2;
+  bool last_chuck = 3;
+  bytes video_feed = 4;
 }
 
 
 message ConvertedVideo {
-  bytes video_feed = 1;
+  optional bytes video_feed = 1;
   bool sucess = 2;
   optional string error = 3;
 }
