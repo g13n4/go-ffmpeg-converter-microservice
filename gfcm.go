@@ -16,37 +16,107 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
-	converter "github.com/g13n4/go-ffmpeg-converter-microservice/video-converter"
+	pb "github.com/g13n4/go-ffmpeg-converter-microservice/video-converter"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
-var port string
-flag.StringVar(port, "port", "50051", "The server port")
+var FILE_HANDLER_MAP = map[int64]*os.File{}
 
+type ThisVideoConverterServer struct {
+}
 
-func TransformVideo(name string, videoId int, fileKwargs ffmpeg.KwArgs) (string, error) {
-	fileNameInput := fmt.Sprintf("/tmp/%d/input/%s", videoId, name)
-	fileNameOutput := fmt.Sprintf("/tmp/%d/output/%s", videoId, name)
+func WriteBytesToFile(fileName string, videoId int64, data []byte) error {
+	// Check if file exists. If it does we append bytes and if not we create a new one
+	handler, ok := FILE_HANDLER_MAP[videoId]
 
-	err := ffmpeg.Input(fileNameInput).
-		Output(fileNameOutput, fileKwargs).
+	if ok {
+		if _, err := handler.Write(data); err != nil {
+			handler.Close()
+			delete(FILE_HANDLER_MAP, videoId)
+			return err
+		}
+	} else {
+		file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+		if err != nil {
+			return err
+		}
+
+		if _, err := file.Write(data); err != nil {
+			file.Close()
+			removeFileError := os.Remove(fileName)
+			delete(FILE_HANDLER_MAP, videoId)
+
+			if removeFileError != nil {
+				return removeFileError
+			}
+
+			return err
+		}
+
+		FILE_HANDLER_MAP[videoId] = file
+
+		return nil
+
+	}
+	return nil
+}
+
+func (c *ThisVideoConverterServer) ConvertVideo(stream pb.VideoConverter_ConvertVideoServer) error {
+	for {
+		in, err := stream.Recv()
+
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		vi := in.VideoInfo
+		fileNameInput := fmt.Sprintf("/tmp/%d/input/%s.%s", vi.VideoId, vi.FileEncoding)
+		fileNameOutput := fmt.Sprintf("/tmp/%d/output/%s.%s", vi.VideoId, vi.OutputEncoding)
+
+		writingErr := WriteBytesToFile(fileNameInput, vi.VideoId, in.VideoFeed)
+
+		if writingErr != nil {
+			removeFileError := os.Remove(fileName)
+			delete(FILE_HANDLER_MAP, videoId)
+
+			if removeFileError != nil {
+				return removeFileError
+			}
+
+		}
+
+	}
+}
+
+func TransformVideo(fileInput string, fileOutput string, fileKwargs ffmpeg.KwArgs) (string, error) {
+
+	err := ffmpeg.Input(fileInput).
+		Output(fileOutput, fileKwargs).
 		OverWriteOutput().ErrorToStdOut().Run()
 
 	if err != nil {
 		return "There is an error!", err
 	}
 
-	return fileNameOutput, nil
+	return fileOutput, nil
 }
 
 func main() {
+	var port string
+	flag.StringVar(&port, "port", "50051", "The server port")
+
 	lis, err := net.Listen("tcp", port)
-	err != nil {
+
+	if err != nil {
 		log.Fatalf("Cannot create an instance of Listen: %s", err)
 	}
 	grpcService := grpc.NewServer()
 
-	converter.RegisterVideoConverterServer
+	pb.RegisterVideoConverterServer
 }
 
 type routeGuideServer struct {
@@ -213,7 +283,7 @@ func newServer() *routeGuideServer {
 	return s
 }
 
-func main() {
+func oldMain() {
 	flag.Parse()
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
 	if err != nil {
@@ -224,4 +294,3 @@ func main() {
 	pb.RegisterRouteGuideServer(grpcServer, newServer())
 	grpcServer.Serve(lis)
 }
-

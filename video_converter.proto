@@ -7,17 +7,23 @@ service VideoConverter {
 }
 
 message VideoInfo {
-  string name = 1;
-  int64 video_id = 2;
+  string file_name = 1;
+  string file_encoding = 2;
+  string output_encoding = 3;
+  int64 video_id = 4;
+  bool last_chunk = 5;
 }
 
 
 message VideoToConvert {
   VideoInfo video_info = 1;
-  bytes video_feed = 2;
+  int chunk_order = 2;
+  bytes video_feed = 3;
 }
 
 
 message ConvertedVideo {
   bytes video_feed = 1;
+  bool sucess = 2;
+  optional string error = 3;
 }
