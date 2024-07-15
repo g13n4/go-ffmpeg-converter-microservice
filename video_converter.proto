@@ -13,12 +13,16 @@ message VideoInfo {
   int64 video_id = 4;
 }
 
+message ConvertionSettings {
+  map<string, string> ffmpeg_setting = 1;
+}
 
 message VideoToConvert {
   VideoInfo video_info = 1;
-  int32 chunk_index = 2;
-  bool last_chuck = 3;
-  bytes video_feed = 4;
+  ConvertionSettings convertion_settings = 2;
+  int32 chunk_index = 3;
+  bool last_chuck = 4;
+  bytes video_feed = 5;
 }
 
 
